@@ -2,168 +2,131 @@ using UnityEngine;
 using UnityEngine.AI;
 using System.Collections;
 
-namespace Assets.JSGAONA.Unidad1.Scripts
-{
+namespace Assets.JSGAONA.Unidad1.Scripts {
+
     // Componentes requeridos para que funcione el script
     [RequireComponent(typeof(NavMeshAgent))]
 
     // Este script se emplea para gestionar la logica de los enemigos
-    public class Enemy : MonoBehaviour
-    {
+    public class Enemy : MonoBehaviour {
+
+        public GameObject projectilePrefab; // Prefab del proyectil
+
+
+
         // Variables visibles desde el inspector de Unity
-        [SerializeField] private float chaseDistance = 0.5f;
-        [SerializeField] private float updateInterval = 0.25f;
-        [SerializeField] private float minimumDistance = 1.5f; // Distancia mínima
-        [SerializeField] private LayerMask obstacleLayer; // Capa para detectar obstáculos
-        [SerializeField] private float eyeHeight = 1.5f; // Altura de los "ojos" del enemigo
+        [SerializeField] private float speedRotation = 120;
+        [SerializeField] private float chaseDistance = 3.5f;
+        [SerializeField] private float approachDistance = 0.5f;
+        [SerializeField] private float updateInterval  = 0.25f;
+
+        [SerializeField] private LayerMask includeLayer;
 
         // Variables ocultas desde el inspector de Unity
-        private bool isPlayerInRange = false;
-        private bool hasLineOfSight = false; // Variable para la línea de visión
+        public bool isPlayerInRange = false;
+        public bool inRange = false;
         private NavMeshAgent agent;
-        private Transform player;
-        private Vector3 initialPosition; // Para almacenar la posición inicial
-        private bool isReturningToStart = false; // Para controlar el regreso a la posición inicial
+        public Transform player;
         public Transform Player { set => player = value; }
+
+
 
         // Metodo de llamada de Unity, se llama una unica vez al iniciar el app, es el primer
         // metodo en ejecutarse, se realiza la asignacion de componentes
-        private void Awake()
-        {
+        private void Awake() {
             agent = GetComponent<NavMeshAgent>();
         }
 
+
         // Metodo de llamada de Unity, se llama una unica vez al iniciar el app, se ejecuta despues
         // de Awake, se realiza la asignacion de variables y configuracion del script
-        private void Start()
-        {
+        private void Start() {
             agent.obstacleAvoidanceType = ObstacleAvoidanceType.MedQualityObstacleAvoidance;
-            initialPosition = transform.position; // Guardar la posición inicial
-            StartCoroutine(UpdateEnemyBehavior());
+            if(player != null) StartCoroutine(UpdateEnemyBehavior());
+        }
+        
+        // Metodo de llamada de Unity, se llama en el momento de que el GameObject es destruido
+        private void OnDestroy() {
+            if(player != null) StopCoroutine(UpdateEnemyBehavior());
         }
 
-        // Metodo de llamada de Unity, se llama en el momento de que el GameObject es destruido
-        private void OnDestroy()
-        {
-            StopCoroutine(UpdateEnemyBehavior());
-        }
 
         // Metodo de llamada de Unity, se activa cuando el renderizador del objeto entra en el campo
         // de vision de la camara activa
-        private void OnBecameVisible()
-        {
+        private void OnBecameVisible() {
+            enabled = true;
             agent.obstacleAvoidanceType = ObstacleAvoidanceType.MedQualityObstacleAvoidance;
         }
 
+
         // Metodo de llamada de Unity, se activa cuando el renderizador del objeto sale del campo de
         // vision de la camara.
-        private void OnBecameInvisible()
-        {
+        private void OnBecameInvisible() {
+            enabled = false;
             agent.obstacleAvoidanceType = ObstacleAvoidanceType.LowQualityObstacleAvoidance;
         }
 
-        // Verifica si hay línea de visión directa hasta el jugador
-        private bool CheckLineOfSight()
-        {
-            if (player == null)
-                return false;
 
-            // Determinar posiciones de "ojos"
-            Vector3 enemyEyePosition = transform.position + Vector3.up * eyeHeight;
-            Vector3 playerEyePosition = player.position + Vector3.up * eyeHeight;
-
-            // Dirección y distancia al jugador
-            Vector3 directionToPlayer = playerEyePosition - enemyEyePosition;
-            float distanceToPlayer = directionToPlayer.magnitude;
-
-            // Solo verificar si está dentro del rango de persecución
-            if (distanceToPlayer <= chaseDistance)
-            {
-                // Visualización del rayo para depuración
-                Debug.DrawRay(enemyEyePosition, directionToPlayer, hasLineOfSight ? Color.green : Color.red, updateInterval);
-
-                // Verificar colisión con objetos
-                RaycastHit hit;
-                if (Physics.Raycast(enemyEyePosition, directionToPlayer.normalized, out hit, distanceToPlayer))
-                {
-                    // Verificar si lo que golpeó el rayo es el jugador o parte del jugador
-                    if (hit.transform == player || hit.transform.IsChildOf(player))
-                    {
-                        return true; // El rayo golpeó al jugador, hay línea de visión
-                    }
-                    return false; // El rayo golpeó algo que no es el jugador
+        // Metodo de llamada de Unity, se llama en cada frame del computador
+        // Se realiza la logica de control del enemigo
+        private void Update() {
+            // Se valida que exista una referencia valida del personaje a seguir y este esta a rango
+            if (isPlayerInRange) {
+                // Mira al jugador suavemente
+                Vector3 direction = (player.position - transform.position).normalized;
+                direction.y = 0; // para evitar rotaciÃ³n vertical
+                if (direction != Vector3.zero) {
+                    Quaternion lookRotation = Quaternion.LookRotation(direction);
+                    transform.rotation = Quaternion.Slerp(transform.rotation, lookRotation,
+                        speedRotation * Time.deltaTime);
                 }
+                // El enemigo esta en rango de alcance del personaje
+                if(inRange) {
 
-                // Si no golpeó nada, probablemente hay línea de visión clara
-                return true;
+                    agent.ResetPath();
+                    if (Time.time % 1 < Time.deltaTime) { AttackPlayer(); }
+
+                } else {
+                    agent.SetDestination(player.position);
+                }
             }
-            return false;
+        }
+        private void AttackPlayer()
+        {
+            // Instanciar el proyectil y dirigirlo hacia el jugador
+            GameObject projectile = Instantiate(projectilePrefab, transform.position, Quaternion.identity);
+            Vector3 direction = (player.position - transform.position).normalized;
+            projectile.GetComponent<Rigidbody>().velocity = direction * 10f; // Ajustar velocidad segÃºn prefieras
         }
 
+
         // Coroutine para optimizar las actualizaciones
-        private IEnumerator UpdateEnemyBehavior()
-        {
+        private IEnumerator UpdateEnemyBehavior() {
             // Mientras sea verdad, se ejecuta indefinidamente
-            while (true)
-            {
-                if (player != null)
-                {
-                    // Verificar línea de visión primero
-                    hasLineOfSight = CheckLineOfSight();
+            while (true) {
+                float distance = Vector3.Distance(transform.position, player.position);
+                bool playerDetected = distance <= chaseDistance;
+                inRange = distance <= approachDistance;
 
-                    float distance = Vector3.Distance(transform.position, player.position);
-
-                    // Solo está en rango si tiene línea de visión directa
-                    isPlayerInRange = distance <= chaseDistance && hasLineOfSight;
-
-                    // ****************** 1) Enemigos que mantiene su distancia ****************** //
-                    if (isPlayerInRange)
-                    {
-                        if (distance <= minimumDistance)
-                        {
-                            // Detener al agente si está demasiado cerca
-                            agent.ResetPath();
-                            isReturningToStart = false;
-                        }
-                        else
-                        {
-                            // Perseguir al jugador
-                            agent.SetDestination(player.position);
-                            isReturningToStart = false;
-                        }
-                    }
-                    else if (!isReturningToStart)
-                    {
-                        // Si el jugador está fuera del rango o no hay línea de visión
-                        agent.SetDestination(initialPosition);
-                        isReturningToStart = true;
-                    }
+                // El jugador a ingresado al radio de persecucion
+                if(playerDetected) {
+                    Vector3 directionToPlayer = (player.position - transform.position).normalized;
+                    isPlayerInRange = !Physics.Raycast(transform.position, directionToPlayer,
+                        distance, includeLayer);
                 }
 
                 yield return new WaitForSeconds(updateInterval);
             }
         }
 
-        // Metodo de llamada de Unity, se llama en cada frame del computador
-        // Se simplifica para evitar problemas
-        private void Update()
-        {
-            // Verificar si ha vuelto a la posición inicial
-            if (isReturningToStart && Vector3.Distance(transform.position, initialPosition) < 0.1f)
-            {
-                isReturningToStart = false;
-                agent.ResetPath(); // Detener al agente cuando llega a la posición inicial
-            }
-        }
 
-        // Método para visualizar el rango de detección en el editor
-        private void OnDrawGizmosSelected()
-        {
-            Gizmos.color = Color.yellow;
-            Gizmos.DrawWireSphere(transform.position, chaseDistance);
-
-            Gizmos.color = Color.red;
-            Gizmos.DrawWireSphere(transform.position, minimumDistance);
+    #if UNITY_EDITOR
+        // Metodo de llamada de Unity, se emplea para visualizar en escena, acciones del codigo
+        private void OnDrawGizmos() {
+            // Se genera el gizmos para visualizar la posicion de los pies, validar piso
+            Gizmos.color = isPlayerInRange ? Color.green : Color.red;
+            Gizmos.DrawLine(transform.position, player.position);
         }
+    #endif
     }
 }
